@@ -84,3 +84,9 @@ seed_db_local:
 	docker compose start db
 	make setup_localstack
 	python scripts/seed_db.py --ciks '["0001018724", "1326801"]'  --filing_types '["10-K"]'
+# awslocal s3 mb s3://llama-app-web-assets-local
+# awslocal s3 cp index.html s3://llama-app-web-assets-local/index.html
+# rm index.html
+# awslocal s3 website s3://llama-app-web-assets-local/ --index-document index.html
+# awslocal s3api put-bucket-cors --bucket llama-app-web-assets-local --cors-configuration file://./localstack-cors-config.json
+# http://llama-app-web-assets-local.s3-website.localhost.localstack.cloud:4566

@@ -1,12 +1,22 @@
-from typing import List, Optional
+
+
+import datetime
 import logging
-from fastapi import Depends, APIRouter, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Optional
 from uuid import UUID
 
-from app.api.deps import get_db
-from app.api import crud
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
+                     Request, UploadFile)
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app import schema
+from app.api import crud
+from app.api.deps import get_db
+from app.helpers.file_processor import process_file, process_url
+from app.models.db import Document
+from scripts.file_utils import Filing
+from scripts.stock_utils import Stock
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,3 +56,40 @@ async def get_document(
         raise HTTPException(status_code=404, detail="Document not found")
 
     return docs[0]
+
+
+@router.post("/upload")
+async def upload_documents(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    values: List[str] = Form([])
+) -> List[schema.Document]:
+    """
+    Upload one or multiple documents to AWS S3 and return their URLs. And then,
+    Download files from URLs, upload them to AWS S3, and return their URLs.
+
+    TODO: This endpoint need to be extended to add a constraints to allow 2MB of maximum total file size.
+        Also it needs to be able to handle various exceptions.
+    """
+    documents: List[schema.Document] = []
+    total_size = 0
+    try:
+        for file in files:
+            """
+                TODO: This part of the code needs to be refactored to handle different types of documents.
+            
+            """
+            document, total_size = await process_file(file, total_size, None)
+            print(f"Processing document: {document}")
+            documents.append(document)
+
+    
+        for file_url in values:
+            document, total_size = await process_url(file_url, total_size)
+            documents.append(document)
+            
+    except Exception as e:
+        # Handle exceptions, possibly logging them and continuing with next file
+        pass
+
+    return documents

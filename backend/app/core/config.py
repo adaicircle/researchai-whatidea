@@ -5,6 +5,8 @@ from pydantic import BaseSettings, AnyHttpUrl, EmailStr, validator
 from multiprocessing import cpu_count
 
 
+from dotenv import load_dotenv
+load_dotenv()
 class AppConfig(BaseSettings.Config):
     """
     Config for settings classes that allows for

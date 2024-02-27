@@ -5,12 +5,12 @@ import { PdfFocusProvider } from "~/context/pdf";
 import type { ChangeEvent } from "react";
 import DisplayMultiplePdfs from "~/components/pdf-viewer/DisplayMultiplePdfs";
 import { backendUrl } from "src/config";
-import { MESSAGE_STATUS, Message } from "~/types/conversation";
+import { MESSAGE_STATUS, type Message } from "~/types/conversation";
 import useMessages from "~/hooks/useMessages";
 import { backendClient } from "~/api/backend";
 import { RenderConversations as RenderConversations } from "~/components/conversations/RenderConversations";
 import { BiArrowBack } from "react-icons/bi";
-import { SecDocument } from "~/types/document";
+import { type SecDocument } from "~/types/document";
 import { FiShare } from "react-icons/fi";
 import ShareLinkModal from "~/components/modals/ShareLinkModal";
 import { BsArrowUpCircle } from "react-icons/bs";
@@ -25,6 +25,7 @@ export default function Conversation() {
   const { shutdown } = useIntercom();
   useEffect(() => {
     shutdown();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { isOpen: isShareModalOpen, toggleModal: toggleShareModal } =
@@ -44,6 +45,7 @@ export default function Conversation() {
   useEffect(() => {
     // router can have multiple query params which would then return string[]
     if (id && typeof id === "string") {
+      console.log(id);
       setConversationId(id);
     }
   }, [id]);
@@ -51,6 +53,7 @@ export default function Conversation() {
   useEffect(() => {
     const fetchConversation = async (id: string) => {
       const result = await backendClient.fetchConversation(id);
+      console.log("result: ", result);
       if (result.messages) {
         setMessages(result.messages);
       }

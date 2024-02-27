@@ -59,11 +59,28 @@ class BackendClient {
     const endpoint = `api/conversation/${id}`;
     const res = await this.get(endpoint);
     const data = (await res.json()) as GetConversationPayload;
-
-    return {
+    const convertedData = {
       messages: data.messages,
       documents: fromBackendDocumentToFrontend(data.documents),
     };
+
+    console.log(`convertedData: `, data.documents);
+    return convertedData;
+  }
+
+  public async uploadFiles(formData: FormData): Promise<unknown> {
+    const url = backendUrl + "api/document/upload";
+    const res = await fetch(url, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errorData: unknown = await res.json();
+      console.error("Error data:", errorData);
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    return res.json();
   }
 
   public async fetchDocuments(): Promise<SecDocument[]> {

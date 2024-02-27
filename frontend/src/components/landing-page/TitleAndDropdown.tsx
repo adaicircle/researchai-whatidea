@@ -1,40 +1,55 @@
 import { useRouter } from "next/router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { FiTrash2 } from "react-icons/fi";
 import GitHubButton from "react-github-btn";
 
 import cx from "classnames";
-import type { SelectOption } from "~/types/selection";
 
-import { DocumentSelectCombobox } from "~/components/landing-page/SelectTicker";
-import Select from "react-select";
+import { DocumentInput } from "~/components/landing-page/SelectTicker";
 import {
   MAX_NUMBER_OF_SELECTED_DOCUMENTS,
   useDocumentSelector,
 } from "~/hooks/useDocumentSelector";
 import { backendClient } from "~/api/backend";
-import { AiOutlineArrowRight, AiTwotoneCalendar } from "react-icons/ai";
+import { AiOutlineArrowRight } from "react-icons/ai";
 import { CgFileDocument } from "react-icons/cg";
-import { customReactSelectStyles } from "~/styles/react-select";
 import { useIntercom } from "react-use-intercom";
 import { LoadingSpinner } from "~/components/basics/Loading";
 import useIsMobile from "~/hooks/utils/useIsMobile";
+import Image from "next/image";
+import { DocumentResponse } from "~/types/document";
 
 export const TitleAndDropdown = () => {
+  const fileInput = useRef(null);
   const router = useRouter();
+  const [urls, setUrls] = useState<string[]>([]);
+  const [fileUrl, setFileUrl] = useState<string>("");
+  const [filesUploaded, setFilesUploaded] = useState<
+    { isFile: boolean; fileName: string }[]
+  >([]);
+  const { selectedDocuments, handleAddUploadedDocuments } =
+    useDocumentSelector();
+
+  const isStartConversationButtonEnabled = filesUploaded.length > 0;
+  const isDocumentSelectionEnabled =
+    filesUploaded.length < MAX_NUMBER_OF_SELECTED_DOCUMENTS;
 
   const { isMobile } = useIsMobile();
 
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
-  const handleSubmit = (event: { preventDefault: () => void }) => {
+  const handleSubmit = () => {
     setIsLoadingConversation(true);
-    event.preventDefault();
     const selectedDocumentIds = selectedDocuments.map((val) => val.id);
     backendClient
       .createConversation(selectedDocumentIds)
       .then((newConversationId) => {
         setIsLoadingConversation(false);
+        // Clear the file input
+        if (fileInput.current) {
+          (fileInput.current as HTMLInputElement).value = "";
+          setFilesUploaded([]);
+        }
         router
           .push(`/conversation/${newConversationId}`)
           .catch(() => console.log("error navigating to conversation"));
@@ -42,33 +57,75 @@ export const TitleAndDropdown = () => {
       .catch(() => console.log("error creating conversation "));
   };
 
-  const {
-    availableTickers,
-    availableDocumentTypes,
-    sortedAvailableYears,
-    selectedDocuments,
-    selectedTicker,
-    selectedDocumentType,
-    selectedYear,
-    setSelectedYear,
-    handleAddDocument,
-    handleRemoveDocument,
-    isDocumentSelectionEnabled,
-    isStartConversationButtonEnabled,
-    yearFocusRef,
-    documentTypeFocusRef,
-    selectTicker,
-    selectDocumentType,
-    shouldFocusCompanySelect,
-    setShouldFocusCompanySelect,
-    sortedSelectedDocuments,
-  } = useDocumentSelector();
-
   const { boot } = useIntercom();
 
   useEffect(() => {
     boot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleAddDocument = () => {
+    if (fileUrl) {
+      filesUploaded.push({ isFile: false, fileName: fileUrl });
+      setFileUrl("");
+    }
+  };
+
+  const handleRemoveDocument = (index: number) => {
+    setFilesUploaded(filesUploaded.filter((_, i) => i !== index));
+  };
+
+  const handleClick = () => {
+    if (fileInput.current) {
+      (fileInput.current as HTMLInputElement).click();
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      const files = Array.from(event.target.files);
+      setFilesUploaded(
+        files.map((file) => {
+          return { isFile: true, fileName: file.name };
+        })
+      );
+    }
+  };
+
+  const handleUpload = async () => {
+    if (fileInput.current) {
+      setIsLoadingConversation(true);
+      const files = Array.from(
+        (fileInput.current as HTMLInputElement)?.files ?? []
+      );
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append(`files`, file);
+      });
+
+      filesUploaded.forEach((fileData) => {
+        // Check if the fileName is not in the files array
+        if (!files.some((file) => file.name === fileData.fileName)) {
+          console.log(fileData.fileName);
+          formData.append(`values`, fileData.fileName);
+        }
+      });
+
+      try {
+        const documentsData: DocumentResponse[] =
+          (await backendClient.uploadFiles(formData)) as DocumentResponse[];
+
+        console.log("documentsData: ", documentsData);
+
+        handleAddUploadedDocuments(documentsData);
+        // TODO: Add function to set selected documents, and the enable the start conversation button
+
+        if (selectedDocuments.length > 0) handleSubmit();
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    }
+  };
 
   return (
     <div className="landing-page-gradient-1 relative flex h-max w-screen flex-col items-center font-lora ">
@@ -76,7 +133,13 @@ export const TitleAndDropdown = () => {
         <a href="https://www.llamaindex.ai/" target="_blank">
           <button className="flex items-center justify-center font-nunito text-lg font-bold ">
             Built by LlamaIndex
-            <img src="logo-black.svg" className="mx-2 rounded-lg" width={40} />
+            <Image
+              src="logo-black.svg"
+              className="mx-2 rounded-lg"
+              width={40}
+              height={40}
+              alt="logo"
+            />
           </button>
         </a>
       </div>
@@ -92,7 +155,9 @@ export const TitleAndDropdown = () => {
           </div>
         </div>
         <div className="mt-4 flex items-center justify-center">
-          <GitHubButton href="https://github.com/run-llama/sec-insights">Open-Sourced on Github</GitHubButton>
+          <GitHubButton href="https://github.com/run-llama/sec-insights">
+            Open-Sourced on Github
+          </GitHubButton>
         </div>
       </div>
       {isMobile ? (
@@ -104,73 +169,23 @@ export const TitleAndDropdown = () => {
       ) : (
         <div className="mt-5 flex h-min w-11/12 max-w-[1200px] flex-col items-center justify-center rounded-lg border-2 bg-white sm:h-[400px] md:w-9/12 ">
           <div className="p-4 text-center text-xl font-bold">
-            Start your conversation by selecting the documents you want to
-            explore
+            Start your conversation by providing the urls or by uploading the
+            document.
           </div>
           <div className="h-1/8 flex w-full flex-wrap items-center justify-center font-nunito">
-            <div className="m-1 flex w-96 items-center">
-              <DocumentSelectCombobox
-                selectedItem={selectedTicker}
-                setSelectedItem={selectTicker}
-                availableDocuments={availableTickers}
-                shouldFocusTicker={shouldFocusCompanySelect}
-                setFocusState={setShouldFocusCompanySelect}
-              />
+            <div className="m-1 flex w-3/4 items-center">
+              <DocumentInput fileUrl={fileUrl} setFileUrl={setFileUrl} />
               <div className="flex h-[41px] w-[40px] items-center justify-center bg-[#F7F7F7] pr-3">
                 <span className="mt-1 font-nunito text-[13px] font-bold text-[#7F7F7F]">
                   ⌘K
                 </span>
               </div>
             </div>
-            <div className="m-1 flex h-[41px] w-56 items-center bg-[#F7F7F7]">
-              <div className="flex h-[41px] w-[30px] items-center justify-center bg-[#F7F7F7] pl-3">
-                <CgFileDocument size={30} />
-              </div>
-              <div className="flex-grow">
-                <Select
-                  openMenuOnFocus
-                  ref={documentTypeFocusRef}
-                  options={availableDocumentTypes}
-                  onChange={selectDocumentType}
-                  getOptionLabel={(option: SelectOption) => option.label}
-                  getOptionValue={(option: SelectOption) => option.value}
-                  value={selectedDocumentType}
-                  placeholder="Select Document Type"
-                  components={{
-                    IndicatorSeparator: () => null,
-                    DropdownIndicator: () => null,
-                  }}
-                  styles={customReactSelectStyles}
-                />
-              </div>
-            </div>
-            <div className="m-1 flex h-[41px] w-48 items-center rounded-e bg-[#F7F7F7]">
-              <div className="flex h-[41px] w-[30px] items-center justify-center bg-[#F7F7F7] pl-3">
-                <AiTwotoneCalendar size={30} />
-              </div>
-              <div className="flex-grow">
-                <Select
-                  openMenuOnFocus
-                  ref={yearFocusRef}
-                  options={sortedAvailableYears || []}
-                  getOptionLabel={(option: SelectOption) => option.label}
-                  getOptionValue={(option: SelectOption) => option.value}
-                  onChange={setSelectedYear}
-                  value={selectedYear}
-                  placeholder="Select Year"
-                  components={{
-                    IndicatorSeparator: () => null,
-                    DropdownIndicator: () => null,
-                  }}
-                  styles={customReactSelectStyles}
-                />
-              </div>
-            </div>
             <div className="relative">
               <button
                 className="m-4 rounded border bg-llama-indigo px-8 py-2 text-white hover:bg-[#3B3775] disabled:bg-gray-30"
                 onClick={handleAddDocument}
-                disabled={!isDocumentSelectionEnabled || !selectedYear}
+                disabled={fileUrl === ""}
               >
                 Add
               </button>
@@ -183,17 +198,27 @@ export const TitleAndDropdown = () => {
           </div>
 
           <div className="mt-2 flex h-full w-11/12 flex-col justify-start overflow-scroll px-4 ">
-            {selectedDocuments.length === 0 && (
-              <div className="m-4 flex h-full flex-col items-center justify-center bg-gray-00 font-nunito text-gray-90">
+            <input
+              type="file"
+              ref={fileInput}
+              style={{ display: "none" }}
+              multiple
+              onChange={handleFileChange}
+            />
+            {filesUploaded.length === 0 && (
+              <div
+                onClick={handleClick}
+                className="m-4 flex h-full cursor-pointer flex-col items-center justify-center bg-gray-00 font-nunito text-gray-90"
+              >
                 <div>
                   <CgFileDocument size={46} />
                 </div>
                 <div className="w-84 text-center md:w-64">
-                  Use the document selector above to start adding documents
+                  Click or drag and drop the files you want to upload
                 </div>
               </div>
             )}
-            {sortedSelectedDocuments.map((doc, index) => (
+            {filesUploaded.map((url, index) => (
               <div
                 key={index}
                 className={cx(
@@ -201,14 +226,7 @@ export const TitleAndDropdown = () => {
                   "group flex items-center justify-between border-b p-1 font-nunito font-bold text-[#868686] hover:bg-[#EAEAF7] hover:text-[#350F66] "
                 )}
               >
-                <div className="w-64 text-left">
-                  <span className="font-bold">{doc.ticker}</span> -{" "}
-                  {doc.fullName}
-                </div>
-                <div className="w-24 text-left">
-                  {doc.year} {doc.quarter && `Q${doc.quarter}`}
-                </div>
-                <div>{doc.docType}</div>
+                <div className="w-5/6 text-left">{url.fileName}</div>
                 <button
                   className="mr-4 group-hover:text-[#FF0000]"
                   onClick={() => handleRemoveDocument(index)}
@@ -227,8 +245,7 @@ export const TitleAndDropdown = () => {
                     Add up to{" "}
                     <span className="font-bold">
                       {" "}
-                      {MAX_NUMBER_OF_SELECTED_DOCUMENTS -
-                        selectedDocuments.length}
+                      {MAX_NUMBER_OF_SELECTED_DOCUMENTS - urls.length}
                     </span>{" "}
                     {isStartConversationButtonEnabled ? (
                       <>more docs</>
@@ -244,7 +261,11 @@ export const TitleAndDropdown = () => {
               <div className="md:ml-12">
                 <button
                   disabled={!isStartConversationButtonEnabled}
-                  onClick={handleSubmit}
+                  onClick={() =>
+                    handleUpload().catch((error: Error) => {
+                      console.error(error);
+                    }) as unknown as void
+                  }
                   className={cx(
                     "m-4 rounded border bg-llama-indigo px-6 py-2 font-nunito text-white hover:bg-[#3B3775] disabled:bg-gray-30 ",
                     !isStartConversationButtonEnabled &&

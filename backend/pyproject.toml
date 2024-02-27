@@ -32,6 +32,8 @@ nltk = "^3.8.1"
 cachetools = "^5.3.1"
 greenlet = "^2.0.2"
 email-validator = "^2.0.0.post2"
+python-dotenv = "^1.0.1"
+python-multipart = "^0.0.9"
 
 
 [tool.poetry.group.dev.dependencies]

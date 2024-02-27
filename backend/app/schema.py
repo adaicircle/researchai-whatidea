@@ -1,21 +1,21 @@
 """
 Pydantic Schemas for the API
 """
-from pydantic import BaseModel, Field, validator
-from enum import Enum
-from typing import List, Optional, Dict, Union, Any
-from uuid import UUID
 from datetime import datetime
-from llama_index.schema import BaseNode, NodeWithScore
+from enum import Enum
+from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
+
 from llama_index.callbacks.schema import EventPayload
-from llama_index.query_engine.sub_question_query_engine import SubQuestionAnswerPair
-from app.models.db import (
-    MessageRoleEnum,
-    MessageStatusEnum,
-    MessageSubProcessSourceEnum,
-    MessageSubProcessStatusEnum,
-)
+from llama_index.query_engine.sub_question_query_engine import \
+    SubQuestionAnswerPair
+from llama_index.schema import BaseNode, NodeWithScore
+from pydantic import BaseModel, Field, validator
+
 from app.chat.constants import DB_DOC_ID_KEY
+from app.models.db import (MessageRoleEnum, MessageStatusEnum,
+                           MessageSubProcessSourceEnum,
+                           MessageSubProcessStatusEnum)
 
 
 def build_uuid_validator(*field_names: str):
@@ -141,10 +141,10 @@ class SecDocumentMetadata(BaseModel):
     Metadata for a document that is a sec document
     """
 
-    company_name: str
-    company_ticker: str
-    doc_type: SecDocumentTypeEnum
-    year: int
+    company_name: Optional[str]
+    company_ticker: Optional[str]
+    doc_type: Optional[SecDocumentTypeEnum]
+    year: Optional[int]
     quarter: Optional[int]
     accession_number: Optional[str]
     cik: Optional[str]

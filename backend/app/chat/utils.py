@@ -1,20 +1,20 @@
-from app.schema import (
-    Document as DocumentSchema,
-    DocumentMetadataKeysEnum,
-    SecDocumentMetadata,
-)
+import re
+
+from app.schema import Document as DocumentSchema
 
 
+# TODO: We need to define how we build the title of the document
 def build_title_for_document(document: DocumentSchema) -> str:
-    if DocumentMetadataKeysEnum.SEC_DOCUMENT not in document.metadata_map:
-        return "No Title Document"
+    """
+    Extracts the title of the document from a given URL by removing the UUID, 
+    replacing underscores with spaces, and removing the file extension.
+    """
+    file_name = document.url.split('/')[-1]
 
-    sec_metadata = SecDocumentMetadata.parse_obj(
-        document.metadata_map[DocumentMetadataKeysEnum.SEC_DOCUMENT]
-    )
-    time_period = (
-        f"{sec_metadata.year} Q{sec_metadata.quarter}"
-        if sec_metadata.quarter is not None
-        else str(sec_metadata.year)
-    )
-    return f"{sec_metadata.company_name} ({sec_metadata.company_ticker}) {sec_metadata.doc_type.value} ({time_period})"
+    uuid_pattern = r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}_'
+
+    clean_title = re.sub(uuid_pattern, '', file_name).replace('_', ' ').rsplit('.', 1)[0]
+
+    return clean_title
+
+

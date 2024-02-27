@@ -1,10 +1,12 @@
-from typing import Optional, cast, Sequence, List
-from sqlalchemy.orm import joinedload
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.db import Conversation, Message, Document, ConversationDocument
-from app import schema
-from sqlalchemy import select, delete
+from typing import List, Optional, Sequence, cast
+
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
+from app import schema
+from app.models.db import Conversation, ConversationDocument, Document, Message
 
 
 async def fetch_conversation_with_messages(

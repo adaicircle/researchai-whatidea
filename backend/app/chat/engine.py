@@ -1,60 +1,47 @@
-from typing import Dict, List, Optional
 import logging
+import re
+import uuid
+from datetime import datetime, timedelta
+from http.cookiejar import LoadError
 from pathlib import Path
-from datetime import datetime
-import s3fs
-from fsspec.asyn import AsyncFileSystem
-from llama_index import (
-    ServiceContext,
-    VectorStoreIndex,
-    StorageContext,
-    load_indices_from_storage,
-)
-from llama_index.vector_stores.types import VectorStore
 from tempfile import TemporaryDirectory
-import requests
+from typing import Dict, List, Optional
+
 import nest_asyncio
-from datetime import timedelta
-from cachetools import cached, TTLCache
+import requests
+import s3fs
+from cachetools import TTLCache, cached
+from fastapi import UploadFile
+from fsspec.asyn import AsyncFileSystem
+from llama_index import (ServiceContext, StorageContext, VectorStoreIndex,
+                         load_indices_from_storage)
+from llama_index.agent import OpenAIAgent
+from llama_index.callbacks.base import BaseCallbackHandler, CallbackManager
+from llama_index.embeddings.openai import (OpenAIEmbedding,
+                                           OpenAIEmbeddingMode,
+                                           OpenAIEmbeddingModelType)
+from llama_index.indices.query.base import BaseQueryEngine
+from llama_index.llms import ChatMessage, OpenAI
+from llama_index.llms.base import MessageRole
+from llama_index.node_parser import SentenceSplitter
+from llama_index.query_engine import SubQuestionQueryEngine
 from llama_index.readers.file.docs_reader import PDFReader
 from llama_index.schema import Document as LlamaIndexDocument
-from llama_index.agent import OpenAIAgent
-from llama_index.llms import ChatMessage, OpenAI
-from llama_index.embeddings.openai import (
-    OpenAIEmbedding,
-    OpenAIEmbeddingMode,
-    OpenAIEmbeddingModelType,
-)
-from llama_index.llms.base import MessageRole
-from llama_index.callbacks.base import BaseCallbackHandler, CallbackManager
 from llama_index.tools import QueryEngineTool, ToolMetadata
-from llama_index.query_engine import SubQuestionQueryEngine
-from llama_index.indices.query.base import BaseQueryEngine
-from llama_index.vector_stores.types import (
-    MetadataFilters,
-    ExactMatchFilter,
-)
-from llama_index.node_parser import SentenceSplitter
-from app.core.config import settings
-from app.schema import (
-    Message as MessageSchema,
-    Document as DocumentSchema,
-    Conversation as ConversationSchema,
-    DocumentMetadataKeysEnum,
-    SecDocumentMetadata,
-)
-from app.models.db import MessageRoleEnum, MessageStatusEnum
-from app.chat.constants import (
-    DB_DOC_ID_KEY,
-    SYSTEM_MESSAGE,
-    NODE_PARSER_CHUNK_OVERLAP,
-    NODE_PARSER_CHUNK_SIZE,
-)
-from app.chat.tools import get_api_query_engine_tool
-from app.chat.utils import build_title_for_document
+from llama_index.vector_stores.types import (ExactMatchFilter, MetadataFilters,
+                                             VectorStore)
+
+from app.chat.constants import (DB_DOC_ID_KEY, MAX_FILE_UPLOAD_SIZE,
+                                NODE_PARSER_CHUNK_OVERLAP,
+                                NODE_PARSER_CHUNK_SIZE, SYSTEM_MESSAGE)
 from app.chat.pg_vector import get_vector_store_singleton
 from app.chat.qa_response_synth import get_custom_response_synth
-
+from app.chat.utils import build_title_for_document
+from app.core.config import settings
+from app.models.db import MessageRoleEnum, MessageStatusEnum
+from app.schema import Conversation as ConversationSchema
+from app.schema import Document as DocumentSchema
+from app.schema import Message as MessageSchema
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +64,32 @@ def get_s3_fs() -> AsyncFileSystem:
     return s3
 
 
+async def upload_file_to_s3(file: UploadFile) -> str:
+    # Check file size before reading
+    if file.file.tell() > MAX_FILE_UPLOAD_SIZE:
+        raise ValueError("File size exceeds maximum")
+
+    file_content = await file.read()
+    unique_filename = str(uuid.uuid4()) + "_" +  file.filename.lower().replace(" ", "_")
+    file_key = f"{unique_filename}"
+
+    # Get the S3 filesystem object
+    s3 = get_s3_fs()
+
+    try:
+        # Upload file to S3 with metadata
+        with s3.open(f"{settings.S3_ASSET_BUCKET_NAME}/{file_key}", 'wb') as f:
+            f.write(file_content)
+
+        file_url = f"{settings.CDN_BASE_URL}/{file_key}"
+        return file_url
+    except Exception as e:
+        # Log the exception and raise a more specific error
+        logging.error(f"Failed to upload {file.filename} to S3: {e}")
+        raise LoadError(f"Failed to upload {file.filename}") from e
+    finally:
+        await file.close()
+
 def fetch_and_read_document(
     document: DocumentSchema,
 ) -> List[LlamaIndexDocument]:
@@ -97,17 +110,8 @@ def fetch_and_read_document(
 
 
 def build_description_for_document(document: DocumentSchema) -> str:
-    if DocumentMetadataKeysEnum.SEC_DOCUMENT in document.metadata_map:
-        sec_metadata = SecDocumentMetadata.parse_obj(
-            document.metadata_map[DocumentMetadataKeysEnum.SEC_DOCUMENT]
-        )
-        time_period = (
-            f"{sec_metadata.year} Q{sec_metadata.quarter}"
-            if sec_metadata.quarter
-            else str(sec_metadata.year)
-        )
-        return f"A SEC {sec_metadata.doc_type.value} filing describing the financials of {sec_metadata.company_name} ({sec_metadata.company_ticker}) for the {time_period} time period."
-    return "A document containing useful information that the user pre-selected to discuss with the assistant."
+    print(f"{document}")
+    return "A document containing useful information for sale professional that the user uploaded and selected to discuss with the assistant."
 
 
 def index_to_query_engine(doc_id: str, index: VectorStoreIndex) -> BaseQueryEngine:
@@ -275,39 +279,18 @@ async def get_chat_engine(
         use_async=True,
     )
 
-    api_query_engine_tools = [
-        get_api_query_engine_tool(doc, service_context)
-        for doc in conversation.documents
-        if DocumentMetadataKeysEnum.SEC_DOCUMENT in doc.metadata_map
-    ]
-
-    quantitative_question_engine = SubQuestionQueryEngine.from_defaults(
-        query_engine_tools=api_query_engine_tools,
-        service_context=service_context,
-        response_synthesizer=response_synth,
-        verbose=settings.VERBOSE,
-        use_async=True,
-    )
 
     top_level_sub_tools = [
         QueryEngineTool(
             query_engine=qualitative_question_engine,
             metadata=ToolMetadata(
-                name="qualitative_question_engine",
-                description="""
-A query engine that can answer qualitative questions about a set of SEC financial documents that the user pre-selected for the conversation.
-Any questions about company-related headwinds, tailwinds, risks, sentiments, or administrative information should be asked here.
-""".strip(),
-            ),
-        ),
-        QueryEngineTool(
-            query_engine=quantitative_question_engine,
-            metadata=ToolMetadata(
-                name="quantitative_question_engine",
-                description="""
-A query engine that can answer quantitative questions about a set of SEC financial documents that the user pre-selected for the conversation.
-Any questions about company-related financials or other metrics should be asked here.
-""".strip(),
+                name="qualitative_question_engine",description="""
+                    A sophisticated query engine designed to provide comprehensive analysis and insights for sales professionals. 
+                    This tool is adept at interrogating a variety of documents sources to gather nuanced information about potential clients. 
+                    It is particularly useful for uncovering details about a company's key contacts, including their role, seniority, geographical location, and industry experience. 
+                    The engine is capable of guiding users in their sales strategy by offering tailored advice on approaching contacts and maximizing sales opportunities. 
+                    It is ideal for inquiries regarding client relationship building, negotiation strategies, and understanding specific market dynamics related to the sales process.
+                """.strip(),
             ),
         ),
     ]
